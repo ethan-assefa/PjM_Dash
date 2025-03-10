@@ -5,24 +5,11 @@ from django.db import migrations
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('accounts', '0001_initial'),  # or whatever your initial migration is named
+        ('accounts', '0001_initial'),
     ]
 
     operations = [
-        # 1) Add a check constraint for user_role in Users
-        migrations.RunSQL(
-            """
-            ALTER TABLE [dbo].[Users]
-            ADD CONSTRAINT [CK_Users_user_role]
-            CHECK (user_role IN ('Admin', 'Lead', 'User'));
-            """,
-            reverse_sql="""
-            ALTER TABLE [dbo].[Users]
-            DROP CONSTRAINT [CK_Users_user_role];
-            """
-        ),
-
-        # 2) Add a check constraint for Projects.proj_status
+        # 1) Add a check constraint for Projects.proj_status
         migrations.RunSQL(
             """
             ALTER TABLE [dbo].[Projects]
@@ -35,7 +22,7 @@ class Migration(migrations.Migration):
             """
         ),
 
-        # 3) Add a check constraint for Deliverables.deliverable_status
+        # 2) Add a check constraint for Deliverables.deliverable_status
         migrations.RunSQL(
             """
             ALTER TABLE [dbo].[Deliverables]
@@ -48,7 +35,7 @@ class Migration(migrations.Migration):
             """
         ),
 
-        # 4) Add a check constraint for Tasks.task_status
+        # 3) Add a check constraint for Tasks.task_status
         migrations.RunSQL(
             """
             ALTER TABLE [dbo].[Tasks]
@@ -61,7 +48,7 @@ class Migration(migrations.Migration):
             """
         ),
 
-        # 5) Add a check constraint for Tasks.task_priority
+        # 4) Add a check constraint for Tasks.task_priority
         migrations.RunSQL(
             """
             ALTER TABLE [dbo].[Tasks]
@@ -74,51 +61,66 @@ class Migration(migrations.Migration):
             """
         ),
 
-        # 6) CREATE TRIGGER before_user_delete on [dbo].[Users]
+        # 5) CREATE TRIGGER before_user_delete referencing the Admin group
         migrations.RunSQL(
             """
             CREATE TRIGGER [before_user_delete]
-            ON [dbo].[Users]
+            ON [dbo].[auth_user]
             INSTEAD OF DELETE
             AS
             BEGIN
                 SET NOCOUNT ON;
-                DECLARE @fallback_admin INT;
 
-                -- Find an Admin user to take over ownership
-                SELECT TOP 1 @fallback_admin = [id]
-                FROM [dbo].[Users]
-                WHERE user_role = 'Admin';
+                -- Get the Admin group id from auth_group
+                DECLARE @admin_group_id INT;
+                SELECT @admin_group_id = [id]
+                FROM [dbo].[auth_group]
+                WHERE [name] = 'Admin';
 
-                -- If no Admin exists, prevent deletion
-                IF @fallback_admin IS NULL
+                -- If there's no group named 'Admin', we can't do fallback
+                IF @admin_group_id IS NULL
                 BEGIN
-                    RAISERROR ('Cannot delete user: No admin available for reassignment.', 16, 1);
+                    RAISERROR ('Cannot delete user: No "Admin" group found for fallback assignment.', 16, 1);
                     ROLLBACK TRANSACTION;
                     RETURN;
-                END
-                ELSE
+                END;
+
+                -- Find any user in the Admin group to reassign ownership
+                DECLARE @fallback_admin INT;
+                SELECT TOP 1 @fallback_admin = [id]
+                FROM [dbo].[auth_user]
+                WHERE [id] IN (
+                    SELECT user_id
+                    FROM [dbo].[Users_groups]
+                    WHERE group_id = @admin_group_id
+                );
+
+                IF @fallback_admin IS NULL
                 BEGIN
-                    -- Reassign created_by fields
-                    UPDATE [dbo].[Projects]
-                    SET created_by = @fallback_admin
-                    WHERE created_by IN (SELECT [id] FROM DELETED);
+                    RAISERROR ('Cannot delete user: No user in "Admin" group available for fallback assignment.', 16, 1);
+                    ROLLBACK TRANSACTION;
+                    RETURN;
+                END;
 
-                    UPDATE [dbo].[Tasks]
-                    SET created_by = @fallback_admin
-                    WHERE created_by IN (SELECT [id] FROM DELETED);
+                -- Reassign created_by fields from the deleted user to the fallback admin
+                UPDATE [dbo].[Projects]
+                SET created_by = @fallback_admin
+                WHERE created_by IN (SELECT [id] FROM DELETED);
 
-                    UPDATE [dbo].[Deliverables]
-                    SET created_by = @fallback_admin
-                    WHERE created_by IN (SELECT [id] FROM DELETED);
+                UPDATE [dbo].[Tasks]
+                SET created_by = @fallback_admin
+                WHERE created_by IN (SELECT [id] FROM DELETED);
 
-                    UPDATE [dbo].[Updates]
-                    SET created_by = @fallback_admin
-                    WHERE created_by IN (SELECT [id] FROM DELETED);
+                UPDATE [dbo].[Deliverables]
+                SET created_by = @fallback_admin
+                WHERE created_by IN (SELECT [id] FROM DELETED);
 
-                    DELETE FROM [dbo].[Users]
-                    WHERE [id] IN (SELECT [id] FROM DELETED);
-                END
+                UPDATE [dbo].[Updates]
+                SET created_by = @fallback_admin
+                WHERE created_by IN (SELECT [id] FROM DELETED);
+
+                DELETE FROM [dbo].[auth_user]
+                WHERE [id] IN (SELECT [id] FROM DELETED);
             END;
             """,
             reverse_sql="""

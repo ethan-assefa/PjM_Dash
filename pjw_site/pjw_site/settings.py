@@ -44,8 +44,7 @@ INSTALLED_APPS = [
     "accounts",
 ]
 
-AUTH_USER_MODEL = 'accounts.CustomUser'
-DEFAULT_AUTO_FIELD = 'django.db.models.AutoField'
+# AUTH_USER_MODEL = 'accounts.CustomUser' # Removed custom user and reverted to default user
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
@@ -135,4 +134,5 @@ STATIC_URL = "static/"
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.0/ref/settings/#default-auto-field
 
-DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+DEFAULT_AUTO_FIELD = 'django.db.models.AutoField'
+# DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField" # Not compatiable with MSSQL DB we set up
